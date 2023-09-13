@@ -2,10 +2,16 @@ import numpy as np
 
 
 class KMeans:
-    def __init__(self, k=3):
+    def __init__(self, k=3, initializer: str = "_kmeans_pp"):
         self._k = k
         self._centroids = None
         self._x = None
+        possible_init_str = ["_kmeans_n", "kmeans_normal", "kmeans", "_kmean_n", "_kmean_normal", "kmean"]
+        if initializer in possible_init_str:
+            self.initializer = "_kmeans_normal"
+        else:
+            self.initializer = "_kmeans_pp"
+        self._cur_distortion = np.inf
 
     @staticmethod
     def _create_input(x: any):
@@ -22,10 +28,30 @@ class KMeans:
         assert x.shape[0] >= k
 
     @staticmethod
-    def _construct_centroids(x: np.ndarray, k: int):
+    def _kmeans_normal(x: np.ndarray, k: int):
         m = x.shape[0]
         random_idx = np.random.choice(np.arange(m), size=k, replace=False)
         centroids = x[random_idx]
+        return centroids
+
+    @staticmethod
+    def _kmeans_pp(x: np.ndarray, k: int):
+        m = x.shape[0]
+        centroids = np.zeros(shape=(k, x.shape[1], 1))
+        random_ind = np.random.randint(m)
+        centroids[0] = x[random_ind]
+
+        if k > 1:
+            dist_tensor = KMeans._get_squared_distance(x, centroids[0])
+            centroids[1] = x[np.argmax(dist_tensor)]
+
+        for cur_k in range(2, k):
+            temp_centroids = KMeans._reshape_centroids(centroids)
+            dist_tensor = KMeans._get_squared_distance(temp_centroids, x)
+            min_dist = KMeans._get_min_dist(dist_tensor)
+            max_ind = np.argmax(min_dist)
+            centroids[cur_k] = x[max_ind]
+
         return centroids
 
     @staticmethod
@@ -44,10 +70,21 @@ class KMeans:
         return closest_idx
 
     @staticmethod
+    def _get_min_dist(dist_tensor: np.ndarray):
+        min_dist_2d = np.min(dist_tensor, axis=-1)
+        min_dist = np.squeeze(min_dist_2d)
+        return min_dist
+
+    @staticmethod
     def _get_closest_examples_avg(closest_idx: np.ndarray, cur_k: int, x: np.ndarray):
         cluster_k_idx = np.where(closest_idx == cur_k)[0]
         closest_examples = x[cluster_k_idx]
-        return np.mean(closest_examples, axis=0, keepdims=True)
+        if closest_examples.size:
+            return np.mean(closest_examples, axis=0, keepdims=True)
+        else:
+            fake_centroid = np.empty(shape=(1, 1, 1))
+            fake_centroid[:] = np.nan
+            return fake_centroid
 
     @staticmethod
     def _get_distortion(x: np.ndarray, centroid: np.ndarray, closest_idx: np.ndarray):
@@ -55,6 +92,10 @@ class KMeans:
         sq_dist = KMeans._get_squared_distance(x, centroid[closest_idx])
         distortion = 1 / m * np.sum(sq_dist)
         return distortion
+
+    def _construct_centroids(self, x: np.ndarray, k: int):
+        initializer = eval("self."+self.initializer)
+        return initializer(x, k)
 
     def fit(self, x, steps=1, verbose=True):
         self._x = self._create_input(x)
@@ -98,6 +139,7 @@ class KMeans:
             if cur_distortion < least_distortion:
                 self._centroids = _centroids
                 least_distortion = cur_distortion
+                self._cur_distortion = least_distortion
                 target_best_idx = best_idx
                 _centroids_updated = True
 
@@ -127,3 +169,6 @@ class KMeans:
         best_idx = self._get_closest_idx(sq_dist)
 
         return best_idx
+
+    def get_distortion(self):
+        return self._cur_distortion
